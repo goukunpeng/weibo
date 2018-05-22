@@ -12,9 +12,10 @@ class GetMweiboFollow(object):
     global request
     request = requests.Session()
 
-    def __init__(self, username, password):
+    def __init__(self, username, password, name):
         self.__username = username
         self.__password = password
+        self.__name = name
 
     def login_mweibo(self):
         print('登录前请关闭微博的登录保护！！！')
@@ -96,14 +97,15 @@ class GetMweiboFollow(object):
             'User-Agent': getUserAgent()
         }
         m_weibo_resp = request.get('https://m.weibo.cn/', headers=headers)
-        username = re.findall(r'\"userName\":\"(.*?)\"', m_weibo_resp.text)[0]
-        username.encode('utf-8').decode('utf-8')
+        # print(m_weibo_resp.text)
+        # m_weibo_resp.encoding = 'utf-8'
+        # username = re.findall(r'"userName":"(.*?)"', m_weibo_resp.text)[0]
+        # print(username)
         _T_WM = re.findall(r'_T_WM=(.*?);', m_weibo_resp.headers['Set-Cookie'])[0]
-        print('_T_WM', _T_WM)
         MLOGIN = 1
         H5_INDEX = 3
         WEIBOCN_FROM = 1110006030
-        parse_username = parse.urlencode({'H5_INDEX_TITLE': username})
+        parse_username = parse.urlencode({'H5_INDEX_TITLE': self.__name})
         print(parse_username)
         H5_INDEX_TITLE = re.findall(r'H5_INDEX_TITLE=(.*?)', parse_username)[0]
         print('H5_INDEX_TITLE', H5_INDEX_TITLE)
@@ -111,7 +113,7 @@ class GetMweiboFollow(object):
                                   + '_T_WM' + '=' + _T_WM + ';' \
                                   + 'MLOGIN' + '=' + str(MLOGIN) + ';' \
                                   + 'H5_INDEX' + '=' + str(H5_INDEX) + ';' \
-                                  + 'H5_INDEX_TITLE' + '=' + H5_INDEX_TITLE + ';'\
+                                  + parse_username + ';'\
                                   + 'WEIBOCN_FROM' + '=' + str(WEIBOCN_FROM)
         print(self.build_weibo_cookie)
 
@@ -120,15 +122,18 @@ class GetMweiboFollow(object):
         self.contain_uid = str(100505) + uid
         if page <= 1:
             params = {'containerid': '{}_-_FOLLOWERS'.format(self.contain_uid)}
+            cookie = self.build_weibo_cookie
         else:
             params = {'containerid': '{}_-_FOLLOWERS'.format(self.contain_uid),
                       'page': args[0]}
+            cookie = self.build_weibo_cookie + ';' \
+                     + 'M_WEIBOCN_PARAMS=fid%3D{}_-_FOLLOWERS%26uicode%3D10000012'.format(self.contain_uid)
         headers = {
             'Accept': 'application/json, text/plain, */*',
             'Accept-Encoding': 'gzip, deflate, br',
             'Accept-Language': 'zh-CN,zh;q=0.9',
             'Connection': 'keep-alive',
-            'Cookie': self.build_weibo_cookie,
+            'Cookie': cookie,
             'Host': 'm.weibo.cn',
             'Referer': 'https://m.weibo.cn/p/second?containerid={}'.format(params['containerid']),
             'User-Agent': self.user_agent,
@@ -148,7 +153,7 @@ class GetMweiboFollow(object):
             print(e)
             return None
 
-    def get_follow(response):
+    def get_follow(self, response):
         follow_info = response.json()['data']['cards']
         follow = {}
         for info in follow_info:
@@ -171,6 +176,9 @@ class GetMweiboFollow(object):
 if __name__ == '__main__':
     user = input('username:')
     passwd = input('password:')
-    gkp = GetMweiboFollow(user, passwd)
+    name = input('用户昵称:')
+    gkp = GetMweiboFollow(user, passwd, name)
     gkp.login_mweibo()
     gkp.get_cookies()
+
+    '''fid=1005053939660970_-_FOLLOWERS&uicode=10000012'''
