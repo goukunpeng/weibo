@@ -210,6 +210,7 @@ def main():
             end_time = time.time()
             print('耗费时间:', end_time - start_time)
         else:
+            # 页数为1
             response = gkp.get_follow_url()
             gkp.write_to_csv(has_title=True)
             gkp.write_to_csv(response, has_title=False)
