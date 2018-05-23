@@ -4,6 +4,7 @@ import requests
 import time
 import random
 import re
+import csv
 from urllib import parse
 from user_agent import getUserAgent
 
@@ -12,10 +13,9 @@ class GetMweiboFollow(object):
     global request
     request = requests.Session()
 
-    def __init__(self, username, password, name):
+    def __init__(self, username, password):
         self.__username = username
         self.__password = password
-        self.__name = name
 
     def login_mweibo(self):
         print('登录前请关闭微博的登录保护！！！')
@@ -64,7 +64,6 @@ class GetMweiboFollow(object):
             else:
                 print("{}成功登录微博！".format(data['username']))
                 # login_response.json()['msg'] == ''或者login_response.json()['retcode'] == 20000000
-                print(login_response.headers)
                 self.uid = login_response.json()['data']['uid']
                 self.cookie_info = login_response.headers['Set-Cookie']
                 return True, self.uid, self.cookie_info
@@ -72,10 +71,8 @@ class GetMweiboFollow(object):
             print('Error:', e.args)
 
     def get_cookies(self):
-        print('self.cookie_info', self.cookie_info)
         comp = re.compile(r'SUB=(.*?);.*?SUHB=(.*?);.*?SCF=(.*?);.*?SSOLoginState=(.*?);.*?ALF=(.*?);.*?')
         reg_info = re.findall(comp, self.cookie_info)[0]
-        print('reg_info', reg_info)
         SUB = reg_info[0]
         SHUB = reg_info[1]
         SCF = reg_info[2]
@@ -85,7 +82,6 @@ class GetMweiboFollow(object):
                          + 'SHUB' + '=' + SHUB + ';' \
                          + 'SCF' + '=' + SCF + ';' \
                          + 'SSOLoginState' + '=' + SSOLoginState
-        print(m_weibo_cookie)
         headers = {
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
             'Accept-Encoding': 'gzip, deflate, br',
@@ -97,37 +93,31 @@ class GetMweiboFollow(object):
             'User-Agent': getUserAgent()
         }
         m_weibo_resp = request.get('https://m.weibo.cn/', headers=headers)
-        # print(m_weibo_resp.text)
-        # m_weibo_resp.encoding = 'utf-8'
-        # username = re.findall(r'"userName":"(.*?)"', m_weibo_resp.text)[0]
-        # print(username)
+        username = re.findall(r'"userName":"(.*?)"', m_weibo_resp.text)[0]
+        username_unicode = username.encode('utf-8').decode('unicode_escape')
         _T_WM = re.findall(r'_T_WM=(.*?);', m_weibo_resp.headers['Set-Cookie'])[0]
         MLOGIN = 1
         H5_INDEX = 3
         WEIBOCN_FROM = 1110006030
-        parse_username = parse.urlencode({'H5_INDEX_TITLE': self.__name})
-        print(parse_username)
-        H5_INDEX_TITLE = re.findall(r'H5_INDEX_TITLE=(.*?)', parse_username)[0]
-        print('H5_INDEX_TITLE', H5_INDEX_TITLE)
+        H5_INDEX_TITLE = parse.urlencode({'H5_INDEX_TITLE': username_unicode})
         self.build_weibo_cookie = m_weibo_cookie + ';' \
                                   + '_T_WM' + '=' + _T_WM + ';' \
                                   + 'MLOGIN' + '=' + str(MLOGIN) + ';' \
                                   + 'H5_INDEX' + '=' + str(H5_INDEX) + ';' \
-                                  + parse_username + ';'\
+                                  + H5_INDEX_TITLE + ';'\
                                   + 'WEIBOCN_FROM' + '=' + str(WEIBOCN_FROM)
-        print(self.build_weibo_cookie)
 
-    def get_follow_url(self, uid, page=1, *args):
-        self.user_agent = getUserAgent()
-        self.contain_uid = str(100505) + uid
+    def get_follow_url(self, page=1, *args):
+        user_agent = getUserAgent()
+        contain_uid = str(100505) + self.uid
         if page <= 1:
-            params = {'containerid': '{}_-_FOLLOWERS'.format(self.contain_uid)}
+            params = {'containerid': '{}_-_FOLLOWERS'.format(contain_uid)}
             cookie = self.build_weibo_cookie
         else:
-            params = {'containerid': '{}_-_FOLLOWERS'.format(self.contain_uid),
+            params = {'containerid': '{}_-_FOLLOWERS'.format(contain_uid),
                       'page': args[0]}
             cookie = self.build_weibo_cookie + ';' \
-                     + 'M_WEIBOCN_PARAMS=fid%3D{}_-_FOLLOWERS%26uicode%3D10000012'.format(self.contain_uid)
+                     + 'M_WEIBOCN_PARAMS=fid%3D{}_-_FOLLOWERS%26uicode%3D10000012'.format(contain_uid)
         headers = {
             'Accept': 'application/json, text/plain, */*',
             'Accept-Encoding': 'gzip, deflate, br',
@@ -136,7 +126,7 @@ class GetMweiboFollow(object):
             'Cookie': cookie,
             'Host': 'm.weibo.cn',
             'Referer': 'https://m.weibo.cn/p/second?containerid={}'.format(params['containerid']),
-            'User-Agent': self.user_agent,
+            'User-Agent': user_agent,
             'X-Requested-With': 'XMLHttpRequest'
         }
         follow_url = 'https://m.weibo.cn/api/container/getSecond?'
@@ -150,7 +140,7 @@ class GetMweiboFollow(object):
                 else:
                     return resp
         except Exception as e:
-            print(e)
+            print(e.args)
             return None
 
     def get_follow(self, response):
@@ -170,15 +160,53 @@ class GetMweiboFollow(object):
                 follow['verified_reason'] = info['user']['verified_reason']
                 yield follow
             else:
+                follow['verified_reason'] = 'None'
                 yield follow
+
+    def write_to_csv(self, *args, has_title=True):
+        if has_title is True:
+            with open('follow.csv', 'w', encoding='utf-8', newline='') as file:
+                follow_title = csv.writer(file, delimiter=',')
+                follow_title.writerow(['id', 'screen_name', 'gender', 'description', 'follow_count', 'followers_count',
+                                       'statuses_count', 'scheme', 'verified_reason'])
+        if has_title is False:
+            with open('follow.csv', 'a+', encoding='utf-8', newline='') as file:
+                follow = csv.writer(file, delimiter=',')
+                for data in self.get_follow(args[0]):
+                    print(data)
+                    follow.writerow([data['id'], data['screen_name'], data['gender'], data['description'],
+                                     data['follow_count'], data['followers_count'], data['statuses_count'],
+                                     data['scheme'], data['verified_reason']])
+
+
+def main():
+    user = input('username:')
+    passwd = input('password:')
+    start_time = time.time()
+    gkp = GetMweiboFollow(user, passwd)
+    gkp.login_mweibo()
+    gkp.get_cookies()
+    if gkp.get_follow_url() is not None:
+        if isinstance(gkp.get_follow_url(), tuple):
+            follow_maxPage = gkp.get_follow_url()[1]
+            gkp.write_to_csv(has_title=True)
+            for page in range(1, follow_maxPage + 1):
+                response = gkp.get_follow_url(follow_maxPage, page)[0]
+                gkp.write_to_csv(response, has_title=False)
+            end_time = time.time()
+            print('耗费时间:', end_time - start_time)
+        else:
+            response = gkp.get_follow_url()
+            gkp.write_to_csv(has_title=True)
+            gkp.write_to_csv(response, has_title=False)
+            end_time = time.time()
+            print('耗费时间:', end_time - start_time)
+    else:
+        print('获取关注列表失败！')
+        end_time = time.time()
+        print('耗费时间:', end_time - start_time)
+        exit()
 
 
 if __name__ == '__main__':
-    user = input('username:')
-    passwd = input('password:')
-    name = input('用户昵称:')
-    gkp = GetMweiboFollow(user, passwd, name)
-    gkp.login_mweibo()
-    gkp.get_cookies()
-
-    '''fid=1005053939660970_-_FOLLOWERS&uicode=10000012'''
+    main()
