@@ -10,14 +10,19 @@ from user_agent import getUserAgent
 
 
 class GetMweiboFollow(object):
-    global request
-    request = requests.Session()
 
     def __init__(self, username, password):
+        '''
+        GetMweiboFollow给绑定属性username,password；使用requests的Session(),使得登录微博后能够保持登录状态
+        :param username: 用户登录新浪微博的账号(邮箱，手机号码等，不包括QQ登录)
+        :param password: 账号密码
+        '''
         self.__username = username
         self.__password = password
+        self.request = requests.Session()
 
     def login_mweibo(self):
+        # 登录微博
         print('登录前请关闭微博的登录保护！！！')
         user_agent = getUserAgent()
         headers = {
@@ -28,8 +33,6 @@ class GetMweiboFollow(object):
             'Connection': 'keep-alive',
             'Content-Length': '286',
             'Content-Type': 'application/x-www-form-urlencoded',
-            # 'Cookie': 'SUHB=0LcC_86LbbY_MQ; _T_WM=c72b609500ccb824bab21274e7cd9380; '
-            #           'SSO-DBL=903b2dfe558d757c50a86dbd7d018964',
             'Host': 'passport.weibo.cn',
             'Origin': 'https://passport.weibo.cn',
             'Pragma': 'no-cache',
@@ -57,27 +60,30 @@ class GetMweiboFollow(object):
         login_url = 'https://passport.weibo.cn/sso/login'
         try:
             time.sleep(random.uniform(1.0, 2.5))
-            login_response = request.post(login_url, headers=headers, data=data)
-            login_status = login_response.json()['msg']
+            login_response = self.request.post(login_url, headers=headers, data=data)
+            login_status = login_response.json()['msg']   # 获得登录状态信息，用于判断是否成功登录。
             if login_response.status_code == 200 and login_status == '用户名或密码错误':
                 print('{}登录失败!'.format(login_status))
             else:
                 print("{}成功登录微博！".format(data['username']))
+                # 以下为成功登录微博的标志。无论是否成功登录微博，此请求状态码都为200
                 # login_response.json()['msg'] == ''或者login_response.json()['retcode'] == 20000000
-                self.uid = login_response.json()['data']['uid']
-                self.cookie_info = login_response.headers['Set-Cookie']
+                self.uid = login_response.json()['data']['uid']   # 获得用户ID，即uid
+                self.cookie_info = login_response.headers['Set-Cookie']  # 获得服务器响应此请求的set-cookie，用于后面构建cookie
                 return True, self.uid, self.cookie_info
         except Exception as e:
             print('Error:', e.args)
 
     def get_cookies(self):
+        # 构建cookie，用于获得关注列表get_follow_url()时，发送请求的headers的Cookie设置
+        # 通过正则表达式，获得cookie里的几个参数SUB、SHUB、SCF、SSOloginState
         comp = re.compile(r'SUB=(.*?);.*?SUHB=(.*?);.*?SCF=(.*?);.*?SSOLoginState=(.*?);.*?ALF=(.*?);.*?')
         reg_info = re.findall(comp, self.cookie_info)[0]
         SUB = reg_info[0]
         SHUB = reg_info[1]
         SCF = reg_info[2]
         SSOLoginState = reg_info[3]
-        ALF = reg_info[4]
+        # ALF = reg_info[4]
         m_weibo_cookie = 'SUB' + '=' + SUB + ';' \
                          + 'SHUB' + '=' + SHUB + ';' \
                          + 'SCF' + '=' + SCF + ';' \
@@ -92,8 +98,13 @@ class GetMweiboFollow(object):
             'Upgrade-Insecure-Requests': '1',
             'User-Agent': getUserAgent()
         }
-        m_weibo_resp = request.get('https://m.weibo.cn/', headers=headers)
+        # 发送请求给m.weibo.cn，获得响应体中的其它cookie参数，_T_WM、H5_INDEX_TITLE
+        # MLOGIN、H5_INDEX、WEIBOCN_FROM的值是固定的
+        # H5_INDEX_TITLE是将用户昵称经过urlencode得到的
+        m_weibo_resp = self.request.get('https://m.weibo.cn/', headers=headers)
         username = re.findall(r'"userName":"(.*?)"', m_weibo_resp.text)[0]
+        # 获得的用户昵称，中文字符是转成了Unicode编码(如\u4e5d)，而英文字符没有。因此要将username由unicode编码为utf-8，再以uniocde_escape解码
+        # unicode_escape可以将转义字符\u读取出来
         username_unicode = username.encode('utf-8').decode('unicode_escape')
         _T_WM = re.findall(r'_T_WM=(.*?);', m_weibo_resp.headers['Set-Cookie'])[0]
         MLOGIN = 1
@@ -108,6 +119,8 @@ class GetMweiboFollow(object):
                                   + 'WEIBOCN_FROM' + '=' + str(WEIBOCN_FROM)
 
     def get_follow_url(self, page=1, *args):
+        # 关注列表的api接口，Ajax加载。每一页最多十条关注列表信息；页数大于1，传入page参数
+        # 获得每页的api接口的json格式数据，即关注列表信息
         user_agent = getUserAgent()
         contain_uid = str(100505) + self.uid
         if page <= 1:
@@ -132,7 +145,7 @@ class GetMweiboFollow(object):
         follow_url = 'https://m.weibo.cn/api/container/getSecond?'
         try:
             time.sleep(random.uniform(0.5, 2.7))
-            resp = requests.get(follow_url, headers=headers, params=params)
+            resp = self.request.get(follow_url, headers=headers, params=params)
             if resp.status_code == 200:
                 follow_maxPage = int(resp.json()['data']['maxPage'])
                 if follow_maxPage >= 1:
@@ -144,8 +157,8 @@ class GetMweiboFollow(object):
             return None
 
     def get_follow(self, response):
+        # 获得关注列表的用户的信息，使用yield
         follow_info = response.json()['data']['cards']
-        follow = {}
         for info in follow_info:
             follow = {'id': info['user']['id'],
                       'screen_name': info['user']['screen_name'],
@@ -164,6 +177,7 @@ class GetMweiboFollow(object):
                 yield follow
 
     def write_to_csv(self, *args, has_title=True):
+        # param has_title: 用于判断是否在csv表格中写入关注列表信息的列名。一般只写入一次。
         if has_title is True:
             with open('follow.csv', 'w', encoding='utf-8', newline='') as file:
                 follow_title = csv.writer(file, delimiter=',')
@@ -180,17 +194,17 @@ class GetMweiboFollow(object):
 
 
 def main():
-    user = input('username:')
+    user = input('user:')
     passwd = input('password:')
     start_time = time.time()
     gkp = GetMweiboFollow(user, passwd)
     gkp.login_mweibo()
     gkp.get_cookies()
-    if gkp.get_follow_url() is not None:
-        if isinstance(gkp.get_follow_url(), tuple):
-            follow_maxPage = gkp.get_follow_url()[1]
+    if gkp.get_follow_url() is not None: # 若gkp.get_follow_url()不为None，说明成功发送了请求，并获得api的json数据
+        if isinstance(gkp.get_follow_url(), tuple): # 若gkp.get_follow_url()是tuple，说明关注列表有两页及以上（大于10个）
+            follow_maxPage = gkp.get_follow_url()[1] # 最大页数
             gkp.write_to_csv(has_title=True)
-            for page in range(1, follow_maxPage + 1):
+            for page in range(1, follow_maxPage + 1):  # 获得每页的api的response，从而得到关注的人的信息，并写入csv
                 response = gkp.get_follow_url(follow_maxPage, page)[0]
                 gkp.write_to_csv(response, has_title=False)
             end_time = time.time()
